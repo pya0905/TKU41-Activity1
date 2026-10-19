@@ -1,4 +1,4 @@
-# TKU41-Activity1[code_artifact (4).html](https://github.com/user-attachments/files/33675338/code_artifact.4.html)
+[code_artifact (5).html](https://github.com/user-attachments/files/33676414/code_artifact.5.html)
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -13,6 +13,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
     <!-- html5-qrcode CDN -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Noto Sans TC', sans-serif; }
         .stamp-animation { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
@@ -177,16 +179,76 @@
     </div>
 
     <!-- Admin Panel Container (Hidden by default) -->
-    <div id="admin-panel" class="hidden max-w-md mx-auto px-4 mt-6 space-y-6">
+    <div id="admin-panel" class="hidden max-w-xl mx-auto px-4 mt-6 space-y-6">
+        
+        <!-- Dashboard Top Stats Bar -->
         <div class="bg-slate-800 border border-slate-700 rounded-3xl p-5 space-y-4">
             <div class="flex justify-between items-center border-b border-slate-700 pb-3">
                 <div>
                     <h2 class="font-bold text-white text-base flex items-center gap-2">
-                        <i class="fa-solid fa-qrcode text-indigo-400"></i> 店家專屬 QR Code
+                        <i class="fa-solid fa-chart-line text-indigo-400"></i> 每日集滿統計與流量分析
                     </h2>
-                    <p class="text-xs text-slate-400">可供現場展示或讓參與者掃描打卡</p>
+                    <p class="text-xs text-slate-400">時區標準：亞洲/台北時間 (UTC+8)</p>
                 </div>
                 <button onclick="exitAdmin()" class="text-xs bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg">離開後台</button>
+            </div>
+
+            <!-- Best Day Highlights -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-900/80 border border-indigo-500/30 p-3.5 rounded-2xl relative overflow-hidden">
+                    <span class="text-[11px] text-indigo-300 font-medium block">最高集滿日 (本週)</span>
+                    <span id="highlight-best-complete-date" class="text-sm font-bold text-white block mt-0.5">--</span>
+                    <span id="highlight-best-complete-count" class="text-xs font-mono text-emerald-400 font-bold block mt-1">0 次集滿</span>
+                </div>
+                <div class="bg-slate-900/80 border border-purple-500/30 p-3.5 rounded-2xl relative overflow-hidden">
+                    <span class="text-[11px] text-purple-300 font-medium block">最高流量日 (本週)</span>
+                    <span id="highlight-best-visit-date" class="text-sm font-bold text-white block mt-0.5">--</span>
+                    <span id="highlight-best-visit-count" class="text-xs font-mono text-indigo-400 font-bold block mt-1">0 次訪問</span>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="bg-slate-950/70 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold text-slate-300"><i class="fa-solid fa-chart-area text-indigo-400 mr-1"></i> 7日集滿與流量趨勢</span>
+                    <span class="text-[10px] text-slate-500 font-mono">Asia/Taipei Standard</span>
+                </div>
+                <div class="h-48 w-full">
+                    <canvas id="analyticsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Daily Settlement Table -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-table-list text-indigo-400"></i> 日結算列表 (最近 7 天)
+                </h4>
+                <div class="overflow-x-auto rounded-2xl border border-slate-700">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-900 text-slate-400 border-b border-slate-700 font-bold">
+                            <tr>
+                                <th class="p-2.5">日期 (Taipei)</th>
+                                <th class="p-2.5 text-center">總集滿次數</th>
+                                <th class="p-2.5 text-center">總訪問次數</th>
+                            </tr>
+                        </thead>
+                        <tbody id="settlement-table-body" class="divide-y divide-slate-800 text-slate-200">
+                            <tr>
+                                <td colspan="3" class="p-3 text-center text-slate-500">資料加載中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Studio QR Code Generator List -->
+        <div class="bg-slate-800 border border-slate-700 rounded-3xl p-5 space-y-4">
+            <div class="border-b border-slate-700 pb-3">
+                <h2 class="font-bold text-white text-base flex items-center gap-2">
+                    <i class="fa-solid fa-qrcode text-indigo-400"></i> 店家專屬 QR Code
+                </h2>
+                <p class="text-xs text-slate-400">可供現場展示或讓參與者掃描打卡</p>
             </div>
 
             <!-- List of Studios with QR Codes -->
@@ -196,7 +258,29 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, collection, query, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Configuration & Variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'studio-stamp-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "demo-api-key",
+            authDomain: "demo-project.firebaseapp.com",
+            projectId: "demo-project",
+            storageBucket: "demo-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let analyticsChartInstance = null;
+
         // 6 大工作室基本資料與專屬打卡碼
         const STUDIOS = [
             { id: 'fish', name: '自漁自樂', code: 'FISH-STUDIO', icon: 'fa-fish-fins', color: 'from-blue-500 to-cyan-500' },
@@ -207,19 +291,240 @@
             { id: 'moshi', name: 'Moshi Moshi', code: 'MOSHI-STUDIO', icon: 'fa-headset', color: 'from-amber-500 to-yellow-500' }
         ];
 
-        // 顧客集點狀態（紀錄已完成的 studio id）
         let userProgress = new Set();
         let html5QrCode = null;
 
-        // 初始化
+        /**
+         * 取得 Asia/Taipei 時區的日期字串 YYYY-MM-DD
+         */
+        function getTaipeiDateString(dateObj = new Date()) {
+            return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(dateObj);
+        }
+
+        /**
+         * 取得 Asia/Taipei 時區的 ISO 時間字串
+         */
+        function getTaipeiISOString() {
+            const now = new Date();
+            const taipeiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+            return taipeiTime.toISOString();
+        }
+
+        /**
+         * 初始化 Firebase 驗證與紀錄訪客流量
+         */
+        async function initAuthAndTraffic() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const cred = await signInWithCustomToken(auth, __initial_auth_token);
+                    currentUser = cred.user;
+                } else {
+                    const cred = await signInAnonymously(auth);
+                    currentUser = cred.user;
+                }
+
+                // 紀錄今日訪客流量 (Asia/Taipei 時區)
+                const dateStr = getTaipeiDateString();
+                const dailyRef = doc(db, 'artifacts', appId, 'public', 'data', 'daily_analytics', dateStr);
+                const dailySnap = await getDoc(dailyRef);
+
+                if (!dailySnap.exists()) {
+                    await setDoc(dailyRef, {
+                        date: dateStr,
+                        timeZone: 'Asia/Taipei',
+                        completions: 0,
+                        visits: 1
+                    });
+                } else {
+                    await updateDoc(dailyRef, {
+                        visits: increment(1)
+                    });
+                }
+            } catch (err) {
+                console.warn("Firebase Auth / Analytics log skipped in offline/fallback mode:", err);
+            }
+        }
+
+        /**
+         * 寫入集滿紀錄 (Completion Log)
+         */
+        async function recordCompletionToFirebase() {
+            if (!currentUser) return;
+            const dateStr = getTaipeiDateString();
+            const timestampIso = getTaipeiISOString();
+            const cardId = `card_${currentUser.uid.slice(0, 8)}`;
+
+            try {
+                // 1. 寫入公開 Completion Records 集合
+                const recordRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'completions'));
+                await setDoc(recordRef, {
+                    user_id: currentUser.uid,
+                    card_id: cardId,
+                    completed_at: timestampIso,
+                    timeZone: 'Asia/Taipei',
+                    date: dateStr
+                });
+
+                // 2. 累加日統計次數
+                const dailyRef = doc(db, 'artifacts', appId, 'public', 'data', 'daily_analytics', dateStr);
+                const dailySnap = await getDoc(dailyRef);
+                if (!dailySnap.exists()) {
+                    await setDoc(dailyRef, {
+                        date: dateStr,
+                        timeZone: 'Asia/Taipei',
+                        completions: 1,
+                        visits: 1
+                    });
+                } else {
+                    await updateDoc(dailyRef, {
+                        completions: increment(1)
+                    });
+                }
+            } catch (err) {
+                console.error("Error recording completion to Firebase:", err);
+            }
+        }
+
+        /**
+         * 加載並渲染後台圖表與數據面板 (Asia/Taipei 時區)
+         */
+        async function loadAdminAnalyticsDashboard() {
+            const today = new Date();
+            const last7Days = [];
+
+            // 產生最近 7 天的台北日期字串列表
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                last7Days.push(getTaipeiDateString(d));
+            }
+
+            const dailyDataMap = {};
+            last7Days.forEach(date => {
+                dailyDataMap[date] = { completions: 0, visits: 0 };
+            });
+
+            try {
+                const analyticsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'daily_analytics');
+                const snapshot = await getDocs(analyticsColRef);
+                
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if (dailyDataMap[data.date]) {
+                        dailyDataMap[data.date] = {
+                            completions: data.completions || 0,
+                            visits: data.visits || 0
+                        };
+                    }
+                });
+            } catch (err) {
+                console.warn("Using local analytics fallback:", err);
+            }
+
+            // 尋求最高集滿與最高流量日
+            let maxCompletions = -1;
+            let bestCompDate = '--';
+            let maxVisits = -1;
+            let bestVisitDate = '--';
+
+            const completionCounts = [];
+            const visitCounts = [];
+            const tableBody = document.getElementById('settlement-table-body');
+            tableBody.innerHTML = '';
+
+            last7Days.forEach(dateStr => {
+                const item = dailyDataMap[dateStr];
+                completionCounts.push(item.completions);
+                visitCounts.push(item.visits);
+
+                if (item.completions > maxCompletions) {
+                    maxCompletions = item.completions;
+                    bestCompDate = dateStr;
+                }
+                if (item.visits > maxVisits) {
+                    maxVisits = item.visits;
+                    bestVisitDate = dateStr;
+                }
+
+                // 填寫日結算表格
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-800/50';
+                row.innerHTML = `
+                    <td class="p-2.5 font-mono text-slate-300 font-medium">${dateStr}</td>
+                    <td class="p-2.5 text-center font-mono font-bold text-emerald-400">${item.completions}</td>
+                    <td class="p-2.5 text-center font-mono font-bold text-indigo-400">${item.visits}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            // 更新 Highlights 資訊
+            document.getElementById('highlight-best-complete-date').innerText = bestCompDate;
+            document.getElementById('highlight-best-complete-count').innerText = `${maxCompletions > 0 ? maxCompletions : 0} 次集滿`;
+            document.getElementById('highlight-best-visit-date').innerText = bestVisitDate;
+            document.getElementById('highlight-best-visit-count').innerText = `${maxVisits > 0 ? maxVisits : 0} 次訪問`;
+
+            // 繪製 Chart.js
+            const ctx = document.getElementById('analyticsChart').getContext('2d');
+            if (analyticsChartInstance) {
+                analyticsChartInstance.destroy();
+            }
+
+            analyticsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last7Days.map(d => d.slice(5)), // 顯示 MM-DD
+                    datasets: [
+                        {
+                            label: '集滿次數',
+                            data: completionCounts,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 2
+                        },
+                        {
+                            label: '訪客流量',
+                            data: visitCounts,
+                            borderColor: '#6366f1',
+                            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8', font: { size: 10 } }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#64748b', font: { size: 10 } },
+                            grid: { color: 'rgba(51, 65, 85, 0.3)' }
+                        },
+                        y: {
+                            ticks: { color: '#64748b', precision: 0, font: { size: 10 } },
+                            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- App UI Functions ---
+
         document.addEventListener('DOMContentLoaded', () => {
             renderStampGrid();
             renderAdminQRList();
+            initAuthAndTraffic();
         });
 
-        /**
-         * 渲染顧客 6 個工作室卡牌集點格
-         */
         function renderStampGrid() {
             const grid = document.getElementById('stamp-grid');
             grid.innerHTML = '';
@@ -255,10 +560,8 @@
                 grid.appendChild(cell);
             });
 
-            // 更新計數
             document.getElementById('collected-count').innerText = userProgress.size;
 
-            // 檢查全集滿
             const rewardText = document.getElementById('reward-status-text');
             const claimBtn = document.getElementById('claim-btn');
 
@@ -268,6 +571,9 @@
                 claimBtn.disabled = false;
                 claimBtn.className = 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all';
                 claimBtn.onclick = () => alert('🎉 恭喜！請向現場工作人員出示此畫面領取限定紀念品！');
+                
+                // 觸發寫入完成紀錄至 Firebase
+                recordCompletionToFirebase();
             } else {
                 rewardText.innerText = `還差 ${STUDIOS.length - userProgress.size} 個工作室即可領取`;
                 rewardText.className = 'text-xs text-slate-400';
@@ -276,10 +582,7 @@
             }
         }
 
-        /**
-         * 啟動手機相機（強制使用後置主鏡頭 facingMode: "environment"）
-         */
-        async function startCameraScan() {
+        window.startCameraScan = async function() {
             const modal = document.getElementById('scanner-modal');
             const errorMsg = document.getElementById('scan-error-msg');
             const loadingSpinner = document.getElementById('loading-spinner');
@@ -293,17 +596,12 @@
                 html5QrCode = new Html5Qrcode("qr-reader");
             }
 
-            // 設置相機掃描參數，強制指定 facingMode: "environment" (後置鏡頭)
-            const cameraConfig = { facingMode: { exact: "environment" } };
             const scanConfig = { fps: 10, qrbox: { width: 220, height: 220 } };
 
             try {
-                // 1. 主動請求視訊權限（指定後置鏡頭）
                 await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-
-                // 2. 啟動 html5QrCode 掃描器
                 await html5QrCode.start(
-                    { facingMode: "environment" }, // 強制調用後置主鏡頭
+                    { facingMode: "environment" },
                     scanConfig,
                     onScanSuccess,
                     onScanError
@@ -311,9 +609,6 @@
                 loadingSpinner.classList.add('hidden');
             } catch (err) {
                 loadingSpinner.classList.add('hidden');
-                console.warn("後置鏡頭啟動失敗或不受支援，嘗試通用模式：", err);
-                
-                // 3. Fallback: 部分手機不接受 exact 或嚴格模式，改用軟性 environment 模式
                 try {
                     await html5QrCode.start(
                         { facingMode: "user" },
@@ -325,26 +620,16 @@
                     showScanError("無法啟動相機！請確認：\n1. 網頁是否使用 HTTPS 加密連線\n2. 是否允許瀏覽器存取相機權限\n3. 若在 LINE/FB 內建瀏覽器，請轉以 Safari/Chrome 開啟。");
                 }
             }
-        }
+        };
 
-        /**
-         * 掃描成功後的回呼函式
-         */
-        function onScanSuccess(decodedText, decodedResult) {
-            // 立即停止相機並關閉視窗
+        function onScanSuccess(decodedText) {
             stopCameraScan();
-            // 執行打卡比對邏輯
             processCheckInCode(decodedText.trim());
         }
 
-        function onScanError(error) {
-            // 掃描過程中的尋找條碼訊息，可無視
-        }
+        function onScanError(error) {}
 
-        /**
-         * 停止相機與關閉視窗
-         */
-        function stopCameraScan() {
+        window.stopCameraScan = function() {
             const modal = document.getElementById('scanner-modal');
             if (html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.stop().then(() => {
@@ -355,7 +640,7 @@
             } else {
                 modal.classList.add('hidden');
             }
-        }
+        };
 
         function showScanError(msg) {
             const errorMsg = document.getElementById('scan-error-msg');
@@ -363,9 +648,6 @@
             errorMsg.classList.remove('hidden');
         }
 
-        /**
-         * 處理輸入/掃描到的打卡代碼
-         */
         function processCheckInCode(code) {
             const matchedStudio = STUDIOS.find(s => s.code.toUpperCase() === code.toUpperCase());
 
@@ -379,54 +661,47 @@
                 return;
             }
 
-            // 成功打卡
             userProgress.add(matchedStudio.id);
             renderStampGrid();
             alert(`🎉 成功完成「${matchedStudio.name}」打卡！`);
         }
 
-        /**
-         * 切換手動代碼輸入框
-         */
-        function toggleManualInput() {
+        window.toggleManualInput = function() {
             const box = document.getElementById('manual-input-box');
             box.classList.toggle('hidden');
-        }
+        };
 
-        /**
-         * 手動提交代碼
-         */
-        function submitManualCode() {
+        window.submitManualCode = function() {
             const input = document.getElementById('manual-code-input');
             const code = input.value.trim();
             if (!code) return;
             processCheckInCode(code);
             input.value = '';
-        }
+        };
 
-        // ================= 店家後台模組 (密碼: tku41) =================
-
-        function openAdminModal() {
+        // Admin Module
+        window.openAdminModal = function() {
             document.getElementById('admin-password-input').value = '';
             document.getElementById('admin-login-err').classList.add('hidden');
             document.getElementById('admin-login-modal').classList.remove('hidden');
-        }
+        };
 
-        function closeAdminModal() {
+        window.closeAdminModal = function() {
             document.getElementById('admin-login-modal').classList.add('hidden');
-        }
+        };
 
-        function verifyAdminPassword() {
+        window.verifyAdminPassword = function() {
             const pwd = document.getElementById('admin-password-input').value.trim();
             if (pwd === 'tku41') {
                 closeAdminModal();
                 switchTab('admin');
+                loadAdminAnalyticsDashboard();
             } else {
                 document.getElementById('admin-login-err').classList.remove('hidden');
             }
-        }
+        };
 
-        function switchTab(tab) {
+        window.switchTab = function(tab) {
             const main = document.querySelector('main');
             const adminPanel = document.getElementById('admin-panel');
             const cardBtn = document.getElementById('tab-card-btn');
@@ -443,15 +718,12 @@
                 adminBtn.className = 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white transition-all shadow-sm';
                 cardBtn.className = 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all';
             }
-        }
+        };
 
-        function exitAdmin() {
+        window.exitAdmin = function() {
             switchTab('card');
-        }
+        };
 
-        /**
-         * 渲染店家後台專屬固定 QR Code
-         */
         function renderAdminQRList() {
             const container = document.getElementById('admin-qr-list');
             container.innerHTML = '';
